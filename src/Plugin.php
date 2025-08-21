@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CloudflareMeet;
 
 use CloudflareMeet\Admin\AdminManager;
+use CloudflareMeet\Core\MeetingPageHandler;
 use CloudflareMeet\Core\Settings;
 use CloudflareMeet\Frontend\ShortcodeManager;
 use CloudflareMeet\API\RealtimeKitClient;
@@ -48,25 +49,23 @@ final class Plugin {
         $this->ajax_handler = new AjaxHandler($this->api_client, $this->database_manager);
         $this->admin_manager = new AdminManager($this->api_client, $this->database_manager, $this->settings);
         $this->shortcode_manager = new ShortcodeManager($this->api_client, $this->database_manager);
+        new MeetingPageHandler($this->database_manager);
     }
 
     private function registerHooks(): void {
-        register_activation_hook(CLOUDFLARE_MEET_PLUGIN_FILE, [$this, 'activate']);
-        register_deactivation_hook(CLOUDFLARE_MEET_PLUGIN_FILE, [$this, 'deactivate']);
-
         add_action('wp_enqueue_scripts', [$this->asset_manager, 'enqueuePublicAssets']);
         //add_action('admin_enqueue_scripts', [$this->asset_manager, 'enqueueAdminAssets']);
 
         add_action('init', [$this, 'loadTextDomain']);
-        // Check if database tables exist and create them if needed
-        add_action('admin_init', [$this, 'checkDatabaseTables']);
+
         // AJAX handlers
         $this->ajax_handler->registerHooks();
     }
 
     public function activate(): void {
+        error_log('active method called');
         $this->database_manager->createTables();
-        $this->database_manager->insertDefaultData();
+        $this->database_manager->insert_default_data();
         flush_rewrite_rules();
 
         // Clear any existing caches
@@ -86,17 +85,6 @@ final class Plugin {
             false,
             dirname(CLOUDFLARE_MEET_BASENAME) . '/languages/'
         );
-    }
-
-    public function checkDatabaseTables(): void {
-        // Check if tables exist and create them if they don't
-        global $wpdb;
-        $table_name = $wpdb->prefix . 'cloudflare_meetings';
-
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
-            $this->database_manager->createTables();
-            $this->database_manager->insertDefaultData();
-        }
     }
 
     // Getter methods for accessing dependencies (if needed)

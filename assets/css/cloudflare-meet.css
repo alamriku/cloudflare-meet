@@ -570,3 +570,318 @@
        display: none;
    }
 }
+
+
+
+/* Meeting Page Styles */
+.cloudflare-meet-page-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Meeting Header */
+.cf-meeting-header-section {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.cf-meeting-title {
+    margin: 0 0 15px 0;
+    color: #333;
+}
+
+.cf-meeting-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.cf-meta-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.cf-meta-label {
+    font-weight: bold;
+    color: #666;
+    font-size: 14px;
+}
+
+.cf-meta-value {
+    color: #333;
+    font-size: 16px;
+}
+
+.cf-status-active {
+    color: #00a32a;
+}
+
+.cf-status-ended {
+    color: #d63638;
+}
+
+/* Join Form */
+.cf-join-meeting-section {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.cf-join-form-card h2 {
+    margin-top: 0;
+    color: #333;
+}
+
+.cf-form-group {
+    margin-bottom: 20px;
+}
+
+.cf-form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #333;
+}
+
+.cf-form-control {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px;
+    box-sizing: border-box;
+}
+
+.cf-form-control:focus {
+    outline: none;
+    border-color: #0073aa;
+    box-shadow: 0 0 0 1px #0073aa;
+}
+
+.required {
+    color: #d63638;
+}
+
+.optional {
+    color: #666;
+    font-weight: normal;
+}
+
+/* Buttons */
+.cf-btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    text-decoration: none;
+    display: inline-block;
+    transition: background-color 0.3s;
+}
+
+.cf-btn-primary {
+    background: #0073aa;
+    color: white;
+}
+
+.cf-btn-primary:hover {
+    background: #005a87;
+}
+
+.cf-btn-secondary {
+    background: #666;
+    color: white;
+}
+
+.cf-btn-danger {
+    background: #d63638;
+    color: white;
+}
+
+.cf-btn-large {
+    padding: 15px 30px;
+    font-size: 18px;
+    width: 100%;
+}
+
+.cf-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Loading spinner */
+.cf-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Status messages */
+.cf-status-message {
+    padding: 15px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.cf-status-message.cf-success {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+.cf-status-message.cf-error {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+.cf-status-message.cf-info {
+    background: #cce7ff;
+    border: 1px solid #b8daff;
+    color: #004085;
+}
+
+/* Meeting Details */
+.cf-meeting-details-section {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.cf-detail-item {
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.cf-meeting-id-display {
+    background: #e9ecef;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-family: monospace;
+}
+
+.cf-meeting-link-input {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.cf-copy-btn {
+    padding: 8px 16px;
+    background: #0073aa;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+/* Video Interface */
+.cf-video-interface {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    z-index: 9999;
+}
+
+.cf-realtimekit-container {
+    width: 100%;
+    height: 100%;
+}
+
+.cf-video-controls-overlay {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+}
+
+.cf-custom-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.cf-leave-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Error Page */
+.cloudflare-meet-error-container {
+    max-width: 600px;
+    margin: 50px auto;
+    padding: 20px;
+    text-align: center;
+}
+
+.cf-error-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 40px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.cf-error-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+
+.cf-meeting-summary {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 4px;
+    margin: 20px 0;
+}
+
+.cf-error-actions {
+    margin-top: 30px;
+}
+
+.cf-error-actions .cf-btn {
+    margin: 0 10px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .cloudflare-meet-page-container {
+        padding: 10px;
+    }
+
+    .cf-meeting-meta {
+        grid-template-columns: 1fr;
+    }
+
+    .cf-detail-item {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .cf-meeting-link-input {
+        width: 100%;
+        margin-bottom: 10px;
+    }
+}

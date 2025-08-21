@@ -45,7 +45,7 @@ add_action('plugins_loaded', function() {
     Plugin::getInstance();
 });
 
-// Plugin activation hook
+ //Plugin activation hook
 register_activation_hook(__FILE__, function() {
     // Load autoloader if not already loaded
     if (!class_exists('CloudflareMeet\\Database\\DatabaseManager')) {
@@ -57,7 +57,6 @@ register_activation_hook(__FILE__, function() {
     // Create database tables
     $database_manager = new DatabaseManager();
     $database_manager->createTables();
-    $database_manager->insertDefaultData();
 
     // Flush rewrite rules
     flush_rewrite_rules();

@@ -41,7 +41,7 @@ class Settings {
         return $this->settings['app_id'] ?? '';
     }
 
-    public function getDefaultPreset(): string {
+    public function get_default_preset(): string {
         return $this->settings['default_preset'] ?? 'group_call_participant';
     }
 
@@ -66,7 +66,7 @@ class Settings {
         return $this->settings;
     }
 
-    public function isConfigured(): bool {
+    public function is_configured(): bool {
         return !empty($this->getOrganizationId()) && !empty($this->getApiKey());
     }
 

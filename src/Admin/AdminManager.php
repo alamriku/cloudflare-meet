@@ -3,9 +3,11 @@ declare(strict_types=1);
 
 namespace CloudflareMeet\Admin;
 
+use CloudflareMeet\API\Exceptions\RealtimeKitException;
 use CloudflareMeet\API\RealtimeKitClient;
 use CloudflareMeet\Database\DatabaseManager;
 use CloudflareMeet\Core\Settings;
+use CloudflareMeet\Database\Models\Meeting;
 
 /**
  * Admin Manager
@@ -27,6 +29,8 @@ class AdminManager {
     private function registerHooks(): void {
         add_action('admin_menu', [$this, 'addAdminMenu']);
         add_action('admin_init', [$this, 'initSettings']);
+        // AJAX hooks - WordPress AJAX system
+        add_action('wp_ajax_cloudflare_create_meeting', [$this, 'handle_create_meeting_ajax']);
         add_action('wp_ajax_cloudflare_test_api', [$this, 'testApiConnection']);
         add_action('admin_notices', [$this, 'showAdminNotices']);
     }
@@ -88,7 +92,7 @@ class AdminManager {
     }
 
     public function dashboardPage(): void {
-        $recent_meetings = $this->database_manager->getActiveMeetings();
+        $recent_meetings = $this->database_manager->get_active_meetings();
         $total_meetings = $this->getTotalMeetingsCount();
         $meetings_today = $this->getMeetingsTodayCount();
         
@@ -99,6 +103,9 @@ class AdminManager {
         $action = $_GET['action'] ?? 'list';
         
         switch ($action) {
+            case 'create':
+                $this->create_meeting_page();    // Shows create form
+                break;
             case 'view':
                 $this->viewMeetingPage();
                 break;
@@ -110,6 +117,10 @@ class AdminManager {
         }
     }
 
+    public function create_meeting_page(): void
+    {
+        include CLOUDFLARE_MEET_PLUGIN_DIR . 'templates/admin/create-meeting.php';
+    }
     public function settingsPage(): void {
         include CLOUDFLARE_MEET_PLUGIN_DIR . 'templates/admin/settings.php';
     }
@@ -124,7 +135,7 @@ class AdminManager {
         $per_page = 20;
         $offset = ($page - 1) * $per_page;
         
-        $meetings = $this->database_manager->getMeetings($per_page, $offset);
+        $meetings = $this->database_manager->get_meetings($per_page, $offset);
         $total_meetings = $this->getTotalMeetingsCount();
         $total_pages = ceil($total_meetings / $per_page);
         
@@ -138,7 +149,7 @@ class AdminManager {
             wp_die(__('Invalid meeting ID', 'cloudflare-meet'));
         }
         
-        $meeting = $this->database_manager->getMeeting($meeting_id);
+        $meeting = $this->database_manager->get_meeting($meeting_id);
         
         if (!$meeting) {
             wp_die(__('Meeting not found', 'cloudflare-meet'));
@@ -279,4 +290,157 @@ class AdminManager {
             'meetings_today' => $this->getMeetingsTodayCount(),
         ];
     }
+
+    /**
+     * Handle AJAX request to create meeting
+     *
+     * WordPress AJAX Concepts:
+     * - Always check nonce for security
+     * - Always check user permissions
+     * - Use wp_send_json_success() and wp_send_json_error()
+     * - WordPress automatically dies after JSON response
+     */
+    public function handle_create_meeting_ajax(): void {
+        try {
+            // 1. Security Check - Verify nonce
+            if (!wp_verify_nonce($_POST['nonce'] ?? '', 'cloudflare_create_meeting')) {
+                wp_send_json_error(__('Security check failed. Please refresh the page.', 'cloudflare-meet'));
+                return;
+            }
+
+            // 2. Permission Check - Only admins can create meetings
+            if (!current_user_can('manage_options')) {
+                wp_send_json_error(__('You do not have permission to create meetings.', 'cloudflare-meet'));
+                return;
+            }
+
+            // 3. Validate Required Fields
+            $meeting_title = sanitize_text_field($_POST['meeting_title'] ?? '');
+            if (empty($meeting_title)) {
+                wp_send_json_error(__('Meeting title is required.', 'cloudflare-meet'));
+                return;
+            }
+
+            // 4. Sanitize and Prepare Data
+            $meeting_data = $this->prepare_meeting_data($_POST);
+
+            // 5. Create Meeting via RealtimeKit API
+            $session_data = $this->create_realtimekit_session($meeting_data);
+
+            // 6. Save Meeting to Database
+            $meeting_id = $this->save_meeting_to_database($meeting_data, $session_data);
+
+            // 7. Prepare Response Data
+            $response_data = $this->prepare_response_data($meeting_data, $session_data, $meeting_id);
+
+            // 8. Send Success Response
+            wp_send_json_success($response_data);
+
+        } catch (\Exception $e) {
+            // Handle any errors
+            error_log('Cloudflare Meet - Create Meeting Error: ' . $e->getMessage());
+            wp_send_json_error(__('Failed to create meeting. Please try again.', 'cloudflare-meet'));
+        }
+    }
+
+    /**
+     * Prepare and sanitize meeting data from POST request
+     */
+    private function prepare_meeting_data(array $post_data): array {
+        return [
+            'title' => sanitize_text_field($post_data['meeting_title'] ?? ''),
+            'description' => sanitize_textarea_field($post_data['meeting_description'] ?? ''),
+            'max_participants' => max(2, min(100, intval($post_data['max_participants'] ?? 10))),
+            'auto_record' => !empty($post_data['auto_record']),
+            'meeting_type' => sanitize_text_field($post_data['meeting_type'] ?? 'public'),
+            'host_user_id' => get_current_user_id(),
+            'created_at' => current_time('mysql')
+        ];
+    }
+
+    /**
+     * Create session using RealtimeKit API
+     * @throws RealtimeKitException
+     */
+    private function create_realtimekit_session(array $meeting_data): array {
+        // Check if API is configured
+        if (!$this->settings->is_configured()) {
+            throw new \Exception(__('RealtimeKit API is not configured. Please check settings.', 'cloudflare-meet'));
+        }
+
+        // Create RealtimeKit session
+        $session_params = [
+            'title' => $meeting_data['title'],
+            'record_on_start' => $meeting_data['auto_record'],
+            //'max_participants' => $meeting_data['max_participants'],
+            'preferred_region' => 'us-east-1', // Can be made configurable
+        ];
+
+        $session_data = $this->api_client->create_meeting($session_params);
+
+        if (empty($session_data['id'])) {
+            throw new \Exception(__('Failed to create RealtimeKit session.', 'cloudflare-meet'));
+        }
+
+        return $session_data;
+    }
+
+    /**
+     * Save meeting to WordPress database
+     */
+    private function save_meeting_to_database(array $meeting_data, array $session_data): int {
+        // Create Meeting model
+        $meeting = new Meeting(
+            $meeting_data['host_user_id'],
+            $session_data['id'], // RealtimeKit session ID
+            $meeting_data['title'],
+            'scheduled', // Initial status
+            0, // Initial participant count
+            $meeting_data['max_participants'],
+            null, // ID will be auto-generated
+            $meeting_data['created_at'],
+            null // Not ended yet
+        );
+
+        // Save to database
+        $saved = $this->database_manager->create_meeting($meeting);
+
+        if (!$saved) {
+            throw new \Exception(__('Failed to save meeting to database.', 'cloudflare-meet'));
+        }
+
+        return $meeting->get_id() ?? 0;
+    }
+
+    /**
+     * Prepare response data for frontend
+     */
+    private function prepare_response_data(array $meeting_data, array $session_data, int $meeting_id): array {
+        $site_url = get_site_url();
+        $session_id = $session_data['id'];
+
+        return [
+            'meeting_id' => $meeting_id,
+            'session_id' => $session_id,
+            'title' => $meeting_data['title'],
+            'description' => $meeting_data['description'],
+            'max_participants' => $meeting_data['max_participants'],
+            'auto_record' => $meeting_data['auto_record'],
+            'meeting_type' => $meeting_data['meeting_type'],
+            'status' => 'scheduled',
+            'created_at' => $meeting_data['created_at'],
+
+            // URLs for frontend
+            'join_url' => $site_url . "/meeting/{$session_id}",
+            'start_url' => $site_url . "/meeting/{$session_id}?host=1",
+            'admin_url' => admin_url("admin.php?page=cloudflare-meet-meetings&action=view&meeting_id={$session_id}"),
+
+            // RealtimeKit data
+            'realtimekit_data' => [
+                'session_id' => $session_id,
+                'room_name' => $session_data['room_name'] ?? $meeting_data['title'],
+            ]
+        ];
+    }
+
 }

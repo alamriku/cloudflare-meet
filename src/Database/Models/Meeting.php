@@ -107,7 +107,7 @@ class Meeting {
     }
 
     // Getters
-    public function getId(): ?int {
+    public function get_id(): ?int {
         return $this->id;
     }
 
