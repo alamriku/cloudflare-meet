@@ -9,39 +9,48 @@ namespace CloudflareMeet\Core;
 class AssetManager {
     
     public function enqueuePublicAssets(): void {
-        // Load RealtimeKit UI Kit with proper module initialization
-        wp_enqueue_script(
-            'realtimekit-ui-init',
-            CLOUDFLARE_MEET_PLUGIN_URL . 'assets/js/realtimekit-init.js',
-            [],
-            CLOUDFLARE_MEET_VERSION,
-            false // Load in head
-        );
+	    // Load RealtimeKit UI Kit with proper module initialization
+	    wp_enqueue_script(
+		    'realtimekit-ui',
+		    CLOUDFLARE_MEET_PLUGIN_URL . 'assets/js/realtimekit-init.js',
+		    [],
+		    CLOUDFLARE_MEET_VERSION,
+		    false // Load in head
+	    );
+	    // Load RealtimeKit Web Core (optional, uncomment if needed)
+	    wp_enqueue_script(
+		    'realtimekit-web-core',
+		    'https://cdn.jsdelivr.net/npm/@cloudflare/realtimekit@latest/dist/browser.js',
+		    [],
+		    null,
+		    true
+	    );
 
-        // Load RealtimeKit Web Core (optional, uncomment if needed)
-         wp_enqueue_script(
-             'realtimekit-web-core',
-             'https://cdn.jsdelivr.net/npm/@cloudflare/realtimekit@latest/dist/browser.js',
-             [],
-             null,
-             true
-         );
-        // Add module type to the script
-        add_filter('script_loader_tag', function($tag, $handle) {
-            if ($handle === 'realtimekit-ui-init') {
-                return str_replace('<script ', '<script type="module" ', $tag);
-            }
-            return $tag;
-        }, 10, 2);
+	    // Mark RealtimeKit UI as ES6 module
+	    add_filter('script_loader_tag', function($tag, $handle) {
+		    if ($handle === 'realtimekit-ui') {
+			    return str_replace('<script ', '<script type="module" ', $tag);
+		    }
+		    return $tag;
+	    }, 10, 2);
 
-        // Load our custom JavaScript
-        wp_enqueue_script(
-            'cloudflare-meet-js',
-            CLOUDFLARE_MEET_PLUGIN_URL . 'assets/js/cloudflare-meet.js',
-            ['jquery', 'realtimekit-ui-init'],
-            CLOUDFLARE_MEET_VERSION,
-            true
-        );
+	    // Load our custom JavaScript
+	    wp_enqueue_script(
+		    'cloudflare-meet-js',
+		    CLOUDFLARE_MEET_PLUGIN_URL . 'assets/js/cloudflare-meet.js',
+		    ['jquery', 'realtimekit-ui'],
+		    CLOUDFLARE_MEET_VERSION,
+		    true
+	    );
+
+	    // Load shortcode JavaScript (new - separate from main meeting page)
+	    wp_enqueue_script(
+		    'cloudflare-meet-shortcode-js',
+		    CLOUDFLARE_MEET_PLUGIN_URL . 'assets/js/cloudflare-meet-shortcode.js',
+		    ['jquery', 'realtimekit-ui'],
+		    CLOUDFLARE_MEET_VERSION,
+		    true
+	    );
 
         // Load CSS
         wp_enqueue_style(
@@ -51,8 +60,37 @@ class AssetManager {
             CLOUDFLARE_MEET_VERSION
         );
 
+	    // Load shortcode-specific CSS
+	    wp_enqueue_style(
+		    'cloudflare-meet-shortcode-css',
+		    CLOUDFLARE_MEET_PLUGIN_URL . 'assets/css/cloudflare-meet-shortcode.css',
+		    ['cloudflare-meet-css'], // Depends on main CSS
+		    CLOUDFLARE_MEET_VERSION
+	    );
+
         $this->localizeScript();
     }
+
+	/**
+	 * Enqueue only shortcode assets (for pages that only have shortcodes)
+	 */
+	public function enqueueShortcodeAssets(): void {
+		// Only load if shortcode assets aren't already loaded
+		if (!wp_script_is('cloudflare-meet-shortcode-js', 'enqueued')) {
+			// Load RealtimeKit dependencies
+			wp_enqueue_script('realtimekit-ui');
+			wp_enqueue_script('realtimekit-web-core');
+
+			// Load shortcode JavaScript
+			wp_enqueue_script('cloudflare-meet-shortcode-js');
+
+			// Load CSS
+			wp_enqueue_style('cloudflare-meet-css');
+			wp_enqueue_style('cloudflare-meet-shortcode-css');
+
+			$this->localizeScript();
+		}
+	}
 
     public function enqueueAdminAssets(string $hook): void {
         // Only load on our admin pages

@@ -118,18 +118,18 @@ class AjaxHandler {
 
             // Check participant limit
             $current_participant_count = $this->database_manager->get_participant_count($meeting_id);
-            if ($current_participant_count >= $meeting->getMaxParticipants()) {
-                wp_send_json_error(__('Meeting is full.', 'cloudflare-meet'));
-                return;
-            }
+//            if ($current_participant_count >= $meeting->getMaxParticipants()) {
+//                wp_send_json_error(__('Meeting is full.', 'cloudflare-meet'));
+//                return;
+//            }
 
             $user_id = get_current_user_id();
-
             // Create participant in RealtimeKit
             $participant_data = $this->api_client->create_regular_participant(
                 $meeting_id,
                 $participant_name,
-                $user_id ?: null
+                $user_id ?: null,
+	            $user_id ? 'group_call_host' : null,
             );
 
             // Create participant in local database

@@ -1,472 +1,545 @@
 /**
- * Cloudflare Meet Frontend JavaScript
- * Integrates with RealtimeKit SDK
+ * Cloudflare Meet Frontend JavaScript - Complete Session Management with Leave Handling
  */
 
 (function($) {
     'use strict';
 
-    // Import RealtimeKit from CDN (loaded in PHP)
-    const { RealtimeKitClient } = window.RealtimeKit || {};
-
-    class CloudflareMeet {
+    class CloudflareMeetClient {
         constructor() {
-            this.meeting = null;
+            this.meeting = null; // RealtimeKit Core meeting object
+            this.meetingElement = null; // UI element
             this.authToken = null;
+            this.isInMeeting = false;
             this.meetingId = null;
-            this.isHost = false;
-            this.localMediaEnabled = {
-                video: false,
-                audio: false
-            };
-            
+
+            console.log('CloudflareMeetClient initialized');
             this.init();
         }
 
         init() {
+            this.meetingId = $('#cf-meeting-id').val();
             this.bindEvents();
-            this.checkExistingMeeting();
+            this.waitForRealtimeKit();
+
+            // Check for existing session on page load
+            this.checkExistingSession();
         }
 
         bindEvents() {
-            $(document).on('click', '.cf-create-meeting', this.createMeeting.bind(this));
-            $(document).on('click', '.cf-join-meeting', this.joinMeeting.bind(this));
-            $(document).on('click', '.cf-leave-meeting', this.leaveMeeting.bind(this));
-            $(document).on('click', '.cf-end-meeting', this.endMeeting.bind(this));
-            $(document).on('click', '.cf-toggle-video', this.toggleVideo.bind(this));
-            $(document).on('click', '.cf-toggle-audio', this.toggleAudio.bind(this));
-            $(document).on('click', '.cf-share-screen', this.toggleScreenShare.bind(this));
-            $(document).on('click', '.cf-toggle-recording', this.toggleRecording.bind(this));
+            $(document).on('submit', '#cf-join-meeting-form', (e) => {
+                console.log('Form submitted');
+                e.preventDefault();
+                this.handleJoinMeeting();
+            });
+
+            // Handle browser/tab close
+            // $(window).on('beforeunload', () => {
+            //     this.handleLeaveBeforeUnload();
+            // });
         }
 
-        async createMeeting(event) {
-            event.preventDefault();
-            
-            const $button = $(event.currentTarget);
-            const $container = $button.closest('.cloudflare-meet-container');
-            
-            try {
-                this.showStatus($container, cloudflare_meet.strings.creating_meeting, 'info');
-                $button.prop('disabled', true);
+        async waitForRealtimeKit() {
+            const maxAttempts = 50;
+            let attempts = 0;
 
-                const response = await $.ajax({
-                    url: cloudflare_meet.ajax_url,
-                    method: 'POST',
-                    data: {
-                        action: 'cloudflare_create_meeting',
-                        nonce: cloudflare_meet.nonce,
-                        room_name: $container.data('room') || 'Meeting Room',
-                        title: $container.data('title') || 'WordPress Meeting',
-                        record_on_start: $container.data('record') || false
-                    }
-                });
+            const checkRealtimeKit = () => {
+                attempts++;
 
-                if (response.success) {
-                    this.authToken = response.data.auth_token;
-                    this.meetingId = response.data.meeting_id;
-                    this.isHost = true;
+                // Check if both Core SDK and UI Kit are loaded
+                const coreLoaded = window.RealtimeKitClient;
+                const uiLoaded = customElements.get('rtk-meeting');
 
-                    await this.initializeRealtimeKit($container);
-                    await this.joinRoom();
-                    
-                    this.showMeetingInterface($container);
-                    this.showStatus($container, cloudflare_meet.strings.meeting_created, 'success');
-                } else {
-                    this.showStatus($container, response.data, 'error');
+                if (coreLoaded && uiLoaded) {
+                    console.log('Both RealtimeKit Core and UI Kit loaded');
+                    return;
                 }
-            } catch (error) {
-                console.error('Create meeting error:', error);
-                this.showStatus($container, cloudflare_meet.strings.error_occurred, 'error');
-            } finally {
-                $button.prop('disabled', false);
+
+                if (attempts < maxAttempts) {
+                    setTimeout(checkRealtimeKit, 200);
+                } else {
+                    console.error('RealtimeKit failed to load after', maxAttempts * 200, 'ms');
+                    console.error('Core loaded:', !!coreLoaded, 'UI loaded:', !!uiLoaded);
+                }
+            };
+
+            checkRealtimeKit();
+        }
+
+        /**
+         * Check for existing session on page load
+         */
+        checkExistingSession() {
+            const existingSession = this.getSessionData();
+
+            if (existingSession) {
+                console.log('Found existing session:', existingSession);
+                this.showRejoinOption(existingSession);
             }
         }
 
-        async joinMeeting(event) {
-            event.preventDefault();
-            
-            const $button = $(event.currentTarget);
-            const $container = $button.closest('.cloudflare-meet-container');
-            const meetingId = $container.find('.cf-meeting-id-input').val();
-            const participantName = $container.find('.cf-participant-name-input').val() || 'Guest';
-            
-            if (!meetingId) {
-                this.showStatus($container, cloudflare_meet.strings.meeting_id_required, 'error');
+        /**
+         * Show rejoin option UI
+         */
+        showRejoinOption(sessionData) {
+            const $joinSection = $('.cf-join-meeting-section');
+            const $rejoinHtml = `
+                <div class="cf-rejoin-section" style="margin-bottom: 20px; padding: 15px; background: #e7f3ff; border: 1px solid #b8daff; border-radius: 4px;">
+                    <h3>Previous Session Found</h3>
+                    <p>You were previously in this meeting as <strong>${sessionData.participant_name}</strong></p>
+                    <p>
+                        <button type="button" id="cf-rejoin-btn" class="cf-btn cf-btn-primary">
+                            Rejoin Meeting
+                        </button>
+                        <button type="button" id="cf-clear-session-btn" class="cf-btn cf-btn-secondary">
+                            Start Fresh
+                        </button>
+                    </p>
+                </div>
+            `;
+
+            $joinSection.prepend($rejoinHtml);
+
+            // Bind rejoin events
+            $('#cf-rejoin-btn').on('click', () => this.rejoinExistingSession(sessionData));
+            $('#cf-clear-session-btn').on('click', () => {
+                this.clearSession();
+                $('.cf-rejoin-section').remove();
+                this.showStatus('Session cleared. You can join as a new participant.', 'info');
+            });
+        }
+
+        /**
+         * Rejoin with existing session
+         */
+        async rejoinExistingSession(sessionData) {
+            console.log('Rejoining existing session');
+
+            const $btn = $('#cf-rejoin-btn');
+            this.setButtonLoading($btn, true, 'Rejoining...');
+
+            try {
+                await this.initializeRealtimeKit(sessionData.token);
+                this.showVideoInterface();
+                this.showStatus('Reconnected to meeting', 'success');
+                $('.cf-rejoin-section').remove();
+
+            } catch (error) {
+                console.error('Rejoin failed:', error);
+                this.showStatus('Failed to rejoin. Please start a new session.', 'error');
+                this.clearSession();
+                $('.cf-rejoin-section').remove();
+            } finally {
+                this.setButtonLoading($btn, false, 'Rejoin Meeting');
+            }
+        }
+
+        async handleJoinMeeting() {
+            const $btn = $('#cf-join-btn');
+
+            // Validate form
+            const participantName = $('#cf-participant-name').val().trim();
+            if (!participantName) {
+                this.showStatus('Please enter your name.', 'error');
                 return;
             }
 
-            try {
-                this.showStatus($container, cloudflare_meet.strings.joining_meeting, 'info');
-                $button.prop('disabled', true);
+            // Check if RealtimeKit is loaded
+            if (!window.RealtimeKitClient) {
+                this.showStatus('RealtimeKit is still loading. Please wait...', 'error');
+                return;
+            }
 
-                const response = await $.ajax({
-                    url: cloudflare_meet.ajax_url,
-                    method: 'POST',
-                    data: {
-                        action: 'cloudflare_join_meeting',
-                        nonce: cloudflare_meet.nonce,
-                        meeting_id: meetingId,
-                        participant_name: participantName
-                    }
+            // Show loading state
+            this.setButtonLoading($btn, true);
+
+            try {
+                // Get auth token from server
+                const authData = await this.getAuthToken({
+                    meeting_id: this.meetingId,
+                    participant_name: participantName,
+                    participant_email: $('#cf-participant-email').val().trim() || ''
                 });
 
-                if (response.success) {
-                    this.authToken = response.data.auth_token;
-                    this.meetingId = response.data.meeting_id;
-                    this.isHost = false;
+                console.log('Auth data received:', authData);
 
-                    await this.initializeRealtimeKit($container);
-                    await this.joinRoom();
-                    
-                    this.showMeetingInterface($container);
-                    this.showStatus($container, cloudflare_meet.strings.joined_meeting, 'success');
+                if (authData.token) {
+                    // Initialize RealtimeKit Core with auth token
+                    await this.initializeRealtimeKit(authData.token);
+
+                    // Store session data
+                    this.storeSessionData(authData, participantName);
+
+                    // Show UI with meeting object
+                    this.showVideoInterface();
+                    this.showStatus('Successfully joined meeting!', 'success');
                 } else {
-                    this.showStatus($container, response.data, 'error');
+                    throw new Error('No auth token received');
                 }
+
             } catch (error) {
                 console.error('Join meeting error:', error);
-                this.showStatus($container, cloudflare_meet.strings.error_occurred, 'error');
+                this.showStatus(error.message || 'Failed to join meeting', 'error');
             } finally {
-                $button.prop('disabled', false);
+                this.setButtonLoading($btn, false);
             }
         }
 
-        async initializeRealtimeKit($container) {
-            if (!RealtimeKitClient) {
-                throw new Error('RealtimeKit SDK not loaded');
+        /**
+         * Store session data in sessionStorage
+         */
+        storeSessionData(authData, participantName) {
+            const sessionData = {
+                token: authData.token,
+                participant_id: authData.participant_id || authData.id,
+                participant_name: participantName,
+                meeting_id: this.meetingId,
+                joined_at: new Date().toISOString()
+            };
+
+            sessionStorage.setItem(this.getSessionKey(), JSON.stringify(sessionData));
+            console.log('Session stored:', sessionData);
+        }
+
+        /**
+         * Get session data from sessionStorage
+         */
+        getSessionData() {
+            try {
+                const stored = sessionStorage.getItem(this.getSessionKey());
+                return stored ? JSON.parse(stored) : null;
+            } catch (error) {
+                console.error('Error parsing session data:', error);
+                return null;
+            }
+        }
+
+        /**
+         * Clear session data
+         */
+        clearSession() {
+            sessionStorage.removeItem(this.getSessionKey());
+            console.log('Session cleared');
+        }
+
+        /**
+         * Get session storage key
+         */
+        getSessionKey() {
+            return `cloudflare_meet_session_${this.meetingId}`;
+        }
+
+        async getAuthToken(formData) {
+            if (typeof cloudflare_meet === 'undefined') {
+                throw new Error('AJAX configuration missing');
             }
 
-            this.meeting = await RealtimeKitClient.init({
-                authToken: this.authToken,
-                defaults: {
-                    audio: false,
-                    video: false,
+            const response = await $.ajax({
+                url: cloudflare_meet.ajax_url,
+                method: 'POST',
+                data: {
+                    action: 'cloudflare_join_meeting',
+                    nonce: cloudflare_meet.nonce,
+                    ...formData
                 }
             });
 
-            this.setupEventListeners($container);
-        }
-
-        setupEventListeners($container) {
-            // Self events
-            this.meeting.self.on('roomJoined', () => {
-                console.log('Room joined successfully');
-                this.updateMeetingInfo($container);
-            });
-
-            this.meeting.self.on('roomLeft', () => {
-                console.log('Left the room');
-                this.hideMeetingInterface($container);
-                this.showStatus($container, cloudflare_meet.strings.meeting_ended, 'info');
-            });
-
-            this.meeting.self.on('mediaUpdate', (update) => {
-                this.handleSelfMediaUpdate($container, update);
-            });
-
-            // Participant events
-            this.meeting.participants.joined.on('participantJoined', (participant) => {
-                this.handleParticipantJoined($container, participant);
-            });
-
-            this.meeting.participants.joined.on('participantLeft', (participant) => {
-                this.handleParticipantLeft($container, participant);
-            });
-
-            this.meeting.participants.joined.on('videoUpdate', (participant) => {
-                this.handleParticipantVideoUpdate($container, participant);
-            });
-
-            this.meeting.participants.joined.on('audioUpdate', (participant) => {
-                this.handleParticipantAudioUpdate($container, participant);
-            });
-
-            // Recording events
-            this.meeting.recording.on('recordingStarted', () => {
-                this.updateRecordingStatus($container, true);
-            });
-
-            this.meeting.recording.on('recordingStopped', () => {
-                this.updateRecordingStatus($container, false);
-            });
-
-            // AI events (if enabled)
-            if (this.meeting.ai) {
-                this.meeting.ai.on('transcriptUpdate', (transcript) => {
-                    this.handleTranscriptUpdate($container, transcript);
-                });
-            }
-        }
-
-        async joinRoom() {
-            await this.meeting.join();
-        }
-
-        async leaveMeeting(event) {
-            event.preventDefault();
-            
-            if (this.meeting) {
-                await this.meeting.leave();
-                this.meeting = null;
-                this.authToken = null;
-                this.meetingId = null;
-            }
-        }
-
-        async endMeeting(event) {
-            event.preventDefault();
-            
-            if (!this.isHost || !this.meetingId) {
-                return;
+            if (!response.success) {
+                throw new Error(response.data || 'Failed to get auth token');
             }
 
+            return response.data;
+        }
+
+        async initializeRealtimeKit(authToken) {
             try {
-                const response = await $.ajax({
-                    url: cloudflare_meet.ajax_url,
-                    method: 'POST',
-                    data: {
-                        action: 'cloudflare_end_meeting',
-                        nonce: cloudflare_meet.nonce,
-                        meeting_id: this.meetingId
+                console.log('Initializing RealtimeKit Core with token:', authToken);
+
+                // Initialize RealtimeKit Core
+                this.meeting = await window.RealtimeKitClient.init({
+                    authToken: authToken,
+                    defaults: {
+                        audio: false,
+                        video: false,
                     }
                 });
 
-               if (response.success) {
-                   if (this.meeting) {
-                       await this.meeting.leave();
-                   }
-                   this.meeting = null;
-                   this.authToken = null;
-                   this.meetingId = null;
-               } else {
-                   console.error('End meeting error:', response.data);
-               }
-           } catch (error) {
-               console.error('End meeting error:', error);
-           }
-       }
+                console.log('RealtimeKit Core initialized, meeting object:', this.meeting);
 
-       async toggleVideo(event) {
-           event.preventDefault();
-           
-           if (!this.meeting) return;
+                // CRITICAL: Join the meeting first before showing UI
+                console.log('Joining meeting...');
+                await this.meeting.join();
 
-           try {
-               if (this.localMediaEnabled.video) {
-                   await this.meeting.self.disableVideo();
-               } else {
-                   await this.meeting.self.enableVideo();
-               }
-           } catch (error) {
-               console.error('Toggle video error:', error);
-           }
-       }
+                console.log('Successfully joined meeting');
+                // CRITICAL: Set up event listeners BEFORE joining
+                this.isInMeeting = true;
+                this.setupMeetingEventListeners();
+            } catch (error) {
+                console.error('RealtimeKit Core initialization error:', error);
+                throw new Error('Failed to initialize RealtimeKit: ' + error.message);
+            }
+        }
 
-       async toggleAudio(event) {
-           event.preventDefault();
-           
-           if (!this.meeting) return;
+        /**
+         * Set up RealtimeKit Core event listeners
+         * This is the key to handling leave events properly
+         */
+        /**
+         * Set up RealtimeKit Core event listeners
+         * This is called AFTER meeting.join() completes
+         */
+        setupMeetingEventListeners() {
+            if (!this.meeting || !this.meeting.self) {
+                console.error('Meeting object or meeting.self not available for event listeners');
+                return;
+            }
 
-           try {
-               if (this.localMediaEnabled.audio) {
-                   await this.meeting.self.disableAudio();
-               } else {
-                   await this.meeting.self.enableAudio();
-               }
-           } catch (error) {
-               console.error('Toggle audio error:', error);
-           }
-       }
+            console.log('Setting up RealtimeKit event listeners');
 
-       async toggleScreenShare(event) {
-           event.preventDefault();
-           
-           if (!this.meeting) return;
+            // Listen for when the local participant leaves the meeting
+            this.meeting.self.on('roomLeft', ({ state }) => {
+                console.log('Local participant left the meeting, state:', state);
 
-           try {
-               if (this.meeting.self.screenShareEnabled) {
-                   await this.meeting.self.disableScreenShare();
-               } else {
-                   await this.meeting.self.enableScreenShare();
-               }
-           } catch (error) {
-               console.error('Toggle screen share error:', error);
-           }
-       }
+                let reason = 'user_left';
+                switch (state) {
+                    case 'ended':
+                        reason = 'meeting_ended';
+                        break;
+                    case 'kicked':
+                        reason = 'kicked';
+                        break;
+                    case 'disconnected':
+                        reason = 'disconnected';
+                        break;
+                    case 'failed':
+                        reason = 'failed';
+                        break;
+                    case 'left':
+                    default:
+                        reason = 'user_left';
+                        break;
+                }
 
-       async toggleRecording(event) {
-           event.preventDefault();
-           
-           if (!this.meeting || !this.isHost) return;
+                this.handleMeetingLeft(reason);
+            });
 
-           try {
-               if (this.meeting.recording.recordingState === 'RECORDING') {
-                   await this.meeting.recording.stop();
-               } else {
-                   await this.meeting.recording.start();
-               }
-           } catch (error) {
-               console.error('Toggle recording error:', error);
-           }
-       }
+            // Listen for successful room join
+            this.meeting.self.on('roomJoined', () => {
+                console.log('Successfully joined the room');
+            });
 
-       handleSelfMediaUpdate($container, update) {
-           this.localMediaEnabled.video = update.videoEnabled;
-           this.localMediaEnabled.audio = update.audioEnabled;
-           
-           // Update button states
-           $container.find('.cf-toggle-video')
-               .toggleClass('active', update.videoEnabled)
-               .text(update.videoEnabled ? 'Turn Off Video' : 'Turn On Video');
-               
-           $container.find('.cf-toggle-audio')
-               .toggleClass('active', update.audioEnabled)
-               .text(update.audioEnabled ? 'Mute' : 'Unmute');
+            // Listen for meeting end events (if room object is available)
+            if (this.meeting.room) {
+                this.meeting.room.on('roomEnded', () => {
+                    console.log('Meeting was ended by host');
+                    this.handleMeetingLeft('meeting_ended');
+                });
+            }
 
-           // Update local video
-           const $localVideo = $container.find('.cf-local-video');
-           if (update.videoTrack) {
-               $localVideo[0].srcObject = new MediaStream([update.videoTrack]);
-               $localVideo.show();
-           } else {
-               $localVideo.hide();
-           }
-       }
+            // Listen for network quality issues
+            this.meeting.self.on('mediaScoreUpdate', ({ kind, score }) => {
+                if (score < 3) {
+                    console.warn(`Poor ${kind} quality detected, score:`, score);
+                }
+            });
 
-       handleParticipantJoined($container, participant) {
-           console.log('Participant joined:', participant);
-           
-           const $participantContainer = $(`
-               <div class="cf-participant" data-participant-id="${participant.id}">
-                   <div class="cf-participant-video-container">
-                       <video class="cf-participant-video" autoplay playsinline></video>
-                       <div class="cf-participant-info">
-                           <span class="cf-participant-name">${participant.name}</span>
-                           <div class="cf-participant-status">
-                               <span class="cf-audio-status">🎤</span>
-                               <span class="cf-video-status">📹</span>
-                           </div>
-                       </div>
-                   </div>
-               </div>
-           `);
-           
-           $container.find('.cf-participants-grid').append($participantContainer);
-           this.updateParticipantCount($container);
-       }
+            // Listen for permission updates
+            if (this.meeting.self.permissions) {
+                this.meeting.self.permissions.on('*', () => {
+                    console.log('Permissions updated');
+                });
+            }
+        }
 
-       handleParticipantLeft($container, participant) {
-           console.log('Participant left:', participant);
-           
-           $container.find(`[data-participant-id="${participant.id}"]`).remove();
-           this.updateParticipantCount($container);
-       }
+        /**
+         * Handle when user leaves meeting (from any source)
+         * This is called when:
+         * 1. User clicks leave button in UI
+         * 2. Host ends meeting
+         * 3. Network disconnection
+         * 4. Browser tab close
+         */
+        handleMeetingLeft(reason = 'unknown') {
+            console.log('Meeting left. Reason:', reason);
 
-       handleParticipantVideoUpdate($container, participant) {
-           const $participant = $container.find(`[data-participant-id="${participant.id}"]`);
-           const $video = $participant.find('.cf-participant-video');
-           const $videoStatus = $participant.find('.cf-video-status');
-           
-           if (participant.videoTrack) {
-               $video[0].srcObject = new MediaStream([participant.videoTrack]);
-               $video.show();
-               $videoStatus.text('📹').addClass('active');
-           } else {
-               $video.hide();
-               $videoStatus.text('📹').removeClass('active');
-           }
-       }
+            // Clear session storage immediately
+            this.clearSession();
 
-       handleParticipantAudioUpdate($container, participant) {
-           const $participant = $container.find(`[data-participant-id="${participant.id}"]`);
-           const $audioStatus = $participant.find('.cf-audio-status');
-           
-           if (participant.audioEnabled) {
-               $audioStatus.text('🎤').addClass('active');
-           } else {
-               $audioStatus.text('🔇').removeClass('active');
-           }
-       }
+            // Update UI state
+            this.isInMeeting = false;
 
-       handleTranscriptUpdate($container, transcript) {
-           const $transcriptContainer = $container.find('.cf-transcript');
-           if ($transcriptContainer.length) {
-               $transcriptContainer.append(`
-                   <div class="cf-transcript-entry">
-                       <strong>${transcript.participantName}:</strong> ${transcript.text}
-                   </div>
-               `);
-               $transcriptContainer.scrollTop($transcriptContainer[0].scrollHeight);
-           }
-       }
+            // Show appropriate message based on reason
+            let message = 'You have left the meeting.';
+            switch (reason) {
+                case 'meeting_ended':
+                    message = 'The meeting has ended.';
+                    break;
+                case 'disconnected':
+                    message = 'Disconnected from meeting.';
+                    break;
+                case 'user_left':
+                    message = 'You have successfully left the meeting.';
+                    break;
+            }
 
-       updateRecordingStatus($container, isRecording) {
-           const $recordingButton = $container.find('.cf-toggle-recording');
-           const $recordingIndicator = $container.find('.cf-recording-indicator');
-           
-           if (isRecording) {
-               $recordingButton.text('Stop Recording').addClass('recording');
-               $recordingIndicator.show().text('🔴 Recording');
-           } else {
-               $recordingButton.text('Start Recording').removeClass('recording');
-               $recordingIndicator.hide();
-           }
-       }
+            // Hide video interface and show join form
+            this.returnToJoinInterface(message);
 
-       updateParticipantCount($container) {
-           const count = $container.find('.cf-participant').length + 1; // +1 for self
-           $container.find('.cf-participant-count').text(count);
-       }
+            // Optional: Notify server about leave (for analytics/logging)
+           // this.notifyServerOfLeave(reason);
+        }
 
-       updateMeetingInfo($container) {
-           $container.find('.cf-meeting-id-display').text(this.meetingId);
-           this.updateParticipantCount($container);
-       }
+        /**
+         * Return to join interface after leaving meeting
+         */
+        returnToJoinInterface(message) {
+            // Hide video interface
+            $('#cf-video-interface').fadeOut(300);
 
-       showMeetingInterface($container) {
-           $container.find('.cf-pre-meeting').hide();
-           $container.find('.cf-meeting-interface').show();
-           
-           // Show appropriate controls based on role
-           if (this.isHost) {
-               $container.find('.cf-host-controls').show();
-           } else {
-               $container.find('.cf-host-controls').hide();
-           }
-       }
+            // Show join form sections again
+            setTimeout(() => {
+                $('.cf-meeting-header-section').fadeIn(300);
+                $('.cf-join-meeting-section').fadeIn(300);
+                $('.cf-meeting-details-section').fadeIn(300);
 
-       hideMeetingInterface($container) {
-           $container.find('.cf-meeting-interface').hide();
-           $container.find('.cf-pre-meeting').show();
-           $container.find('.cf-participants-grid').empty();
-       }
+                // Show status message
+                this.showStatus(message, 'info');
 
-       showStatus($container, message, type = 'info') {
-           const $status = $container.find('.cf-status');
-           $status.removeClass('info success error warning')
-                  .addClass(type)
-                  .text(message)
-                  .show();
-           
-           if (type === 'success') {
-               setTimeout(() => $status.fadeOut(), 3000);
-           }
-       }
+                // Clear form for fresh start (optional)
+                $('#cf-participant-name').val('');
+                $('#cf-participant-email').val('');
+            }, 400);
+        }
 
-       checkExistingMeeting() {
-           // Check if there's a meeting in progress (from localStorage or URL params)
-           const urlParams = new URLSearchParams(window.location.search);
-           const meetingId = urlParams.get('meeting_id');
-           
-           if (meetingId) {
-               $('.cf-meeting-id-input').val(meetingId);
-           }
-       }
-   }
+        /**
+         * Handle browser/tab close
+         */
+        handleLeaveBeforeUnload() {
+            if (this.isInMeeting && this.meeting) {
+                // Leave the meeting gracefully
+                try {
+                    this.meeting.leave();
+                } catch (error) {
+                    console.warn('Error leaving meeting on unload:', error);
+                }
 
-   // Initialize when DOM is ready
-   $(document).ready(function() {
-       window.CloudflareMeet = new CloudflareMeet();
-   });
+                // Clear session
+                this.clearSession();
+            }
+        }
+
+        /**
+         * Notify server that participant left (optional)
+         */
+        // async notifyServerOfLeave(reason) {
+        //     if (typeof cloudflare_meet === 'undefined') {
+        //         return;
+        //     }
+        //
+        //     try {
+        //         await $.ajax({
+        //             url: cloudflare_meet.ajax_url,
+        //             method: 'POST',
+        //             data: {
+        //                 action: 'cloudflare_leave_meeting',
+        //                 nonce: cloudflare_meet.nonce,
+        //                 meeting_id: this.meetingId,
+        //                 reason: reason
+        //             }
+        //         });
+        //     } catch (error) {
+        //         console.warn('Failed to notify server of leave:', error);
+        //     }
+        // }
+
+        showVideoInterface() {
+            console.log('Showing video interface');
+
+            // Hide join form sections
+            $('.cf-meeting-header-section').fadeOut(300);
+            $('.cf-join-meeting-section').fadeOut(300);
+            $('.cf-meeting-details-section').fadeOut(300);
+
+            // Show video interface
+            setTimeout(() => {
+                $('#cf-video-interface').fadeIn(300);
+                this.initializeRealtimeKitUI();
+            }, 400);
+        }
+
+        initializeRealtimeKitUI() {
+            this.meetingElement = document.getElementById('cf-rtk-meeting');
+
+            if (!this.meetingElement) {
+                console.error('Meeting element not found');
+                return;
+            }
+
+            if (!this.meeting) {
+                console.error('Meeting object not available');
+                return;
+            }
+
+            console.log('Assigning meeting object to UI element');
+
+            try {
+                // Wait a bit for the element to be fully rendered
+                setTimeout(() => {
+                    this.meetingElement.meeting = this.meeting;
+                    this.meetingElement.showSetupScreen = false;
+
+                    // Set leaveOnUnmount to false so we handle leave manually
+                    this.meetingElement.leaveOnUnmount = false;
+
+                    console.log('RealtimeKit UI initialized successfully');
+
+                    // The leave button in the UI will now trigger the 'roomLeft' event
+                    // which we're already listening for in setupMeetingEventListeners()
+
+                }, 1000);
+
+            } catch (error) {
+                console.error('RealtimeKit UI initialization error:', error);
+                this.showStatus('Failed to initialize video interface', 'error');
+            }
+        }
+
+        setButtonLoading($button, loading, text = null) {
+            if (loading) {
+                $button.prop('disabled', true);
+                $button.find('.cf-btn-text').hide();
+                $button.find('.cf-btn-loading').show();
+                if (text) {
+                    $button.find('.cf-btn-loading').text(text);
+                }
+            } else {
+                $button.prop('disabled', false);
+                $button.find('.cf-btn-text').show();
+                $button.find('.cf-btn-loading').hide();
+            }
+        }
+
+        showStatus(message, type = 'info') {
+            const $status = $('#cf-meeting-status');
+            $status.removeClass('cf-success cf-error cf-info cf-warning')
+                .addClass('cf-' + type)
+                .html('<p>' + message + '</p>')
+                .show();
+
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    $status.fadeOut();
+                }, 5000);
+            }
+        }
+    }
+
+    // Initialize when DOM is ready
+    $(document).ready(function() {
+        if ($('#cf-join-meeting-form').length > 0) {
+            console.log('Meeting form found, initializing client');
+            window.CloudflareMeetClient = new CloudflareMeetClient();
+        }
+    });
 
 })(jQuery);
