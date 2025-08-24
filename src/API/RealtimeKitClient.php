@@ -498,18 +498,23 @@ class RealtimeKitClient {
         ]);
     }
 
-    /**
-     * Create regular participant (used when joining meetings)
-     * @throws RealtimeKitException
-     */
-    public function create_regular_participant(string $meeting_id, string $participant_name, ?int $user_id = null): array {
+	/**
+	 * @param string $meeting_id
+	 * @param string $participant_name
+	 * @param int|null $user_id
+	 * @param $preset_name
+	 *
+	 * @return array
+	 * @throws RealtimeKitException
+	 */
+    public function create_regular_participant(string $meeting_id, string $participant_name, ?int $user_id = null, $preset_name): array {
         $custom_id = $user_id
             ? "participant_wp_user_{$user_id}_" . wp_generate_uuid4()
             : "guest_" . wp_generate_uuid4();
 
         return $this->create_participant($meeting_id, [
             'name' => $participant_name,
-            'preset_name' => 'group_call_participant',
+            'preset_name' => $preset_name ?? 'group_call_participant',
             'custom_participant_id' => $custom_id,
         ]);
     }
